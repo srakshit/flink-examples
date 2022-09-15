@@ -98,6 +98,11 @@ public class ClickstreamProcessor {
         Properties kafkaConfig = new Properties();
         kafkaConfig.setProperty("bootstrap.servers", flinkProperties.getProperty("BootstrapServers"));
         kafkaConfig.setProperty("group.id", flinkProperties.getProperty("GroupId", "flink-clickstream-processor"));
+        kafkaConfig.setProperty("security.protocol", "SASL_SSL");
+        kafkaConfig.setProperty("sasl.mechanism", "AWS_MSK_IAM");
+        kafkaConfig.setProperty("sasl.jaas.config", "software.amazon.msk.auth.iam.IAMLoginModule required;");
+        kafkaConfig.setProperty("sasl.client.callback.handler.class", "software.amazon.msk.auth.iam.IAMClientCallbackHandler");
+
 
         WatermarkStrategy watermarkStrategy = WatermarkStrategy
                 .forBoundedOutOfOrderness(Duration.ofSeconds(20)).withIdleness(Duration.ofMinutes(1));
