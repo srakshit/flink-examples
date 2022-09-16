@@ -3,13 +3,15 @@ package com.amazonaws.kaja.samples;
 import com.amazonaws.kaja.samples.utils.AmazonElasticsearchSink;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.kinesisanalytics.runtime.KinesisAnalyticsRuntime;
+import com.amazonaws.services.schemaregistry.flink.avro.GlueSchemaRegistryAvroDeserializationSchema;
+import com.amazonaws.services.schemaregistry.utils.AWSSchemaRegistryConstants;
+import com.amazonaws.services.schemaregistry.utils.AvroRecordType;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.java.tuple.Tuple;
-import org.apache.flink.formats.avro.registry.confluent.ConfluentRegistryAvroDeserializationSchema;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.LocalStreamEnvironment;
@@ -30,9 +32,9 @@ import java.util.*;
 
 public class ClickstreamProcessor {
     private static final Logger LOG = LoggerFactory.getLogger(ClickstreamProcessor.class);
-    private static final List<String> MANDATORY_PARAMETERS = Arrays.asList("BootstrapServers", "SchemaRegistryUrl");
+    private static final List<String> MANDATORY_PARAMETERS = Arrays.asList("BootstrapServers");
     private static transient Gson gson = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss.SSS").create();
-
+    private static Map<String, Object> configs = new HashMap<>();
 
     public static <T> String toJson(T objToConvert){
 
@@ -106,16 +108,21 @@ public class ClickstreamProcessor {
 
         WatermarkStrategy watermarkStrategy = WatermarkStrategy
                 .forBoundedOutOfOrderness(Duration.ofSeconds(20)).withIdleness(Duration.ofMinutes(1));
+
+        configs.put(AWSSchemaRegistryConstants.AWS_REGION, flinkProperties.getProperty("Region"));
+        configs.put(AWSSchemaRegistryConstants.SCHEMA_AUTO_REGISTRATION_SETTING, true);
+        configs.put(AWSSchemaRegistryConstants.SCHEMA_NAME, flinkProperties.getProperty("SchemaName"));
+        configs.put(AWSSchemaRegistryConstants.REGISTRY_NAME, flinkProperties.getProperty("RegistryName"));
+        configs.put(AWSSchemaRegistryConstants.AVRO_RECORD_TYPE, AvroRecordType.SPECIFIC_RECORD.getName());
+
+        FlinkKafkaConsumer<ClickEvent> consumer = new FlinkKafkaConsumer<>(
+                flinkProperties.getProperty("Topic", "ExampleTopic"),
+                GlueSchemaRegistryAvroDeserializationSchema.forSpecific(ClickEvent.class, configs),
+                kafkaConfig);
         //Setting the source for Apache kafka (MSK) and assigning Timestamps and watermarks for Event Time
-        DataStream<ClickEvent> clickEvents = env
-                .addSource(
-                        new FlinkKafkaConsumer<>(
-                                flinkProperties.getProperty("Topic", "ExampleTopic"),
-                                ConfluentRegistryAvroDeserializationSchema.forSpecific(ClickEvent.class, flinkProperties.getProperty("SchemaRegistryUrl")),
-                                kafkaConfig)
+        DataStream<ClickEvent> clickEvents = env.addSource(consumer
                                 .setStartFromEarliest()
-                                .assignTimestampsAndWatermarks(watermarkStrategy)
-                        );
+                                .assignTimestampsAndWatermarks(watermarkStrategy));
         //.setStartFromEarliest().assignTimestampsAndWatermarks(new ClickEventTimestampWatermarkGenerator()));
 
 
